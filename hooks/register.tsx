@@ -7,7 +7,6 @@ const PANE = 'dash'
 const PICKER = 'dash-models'
 const EFFORT = 'dash-effort'
 const CHATS = 'dash-chats'
-const VIEW = 'dash-chat'
 const FILES = 'dash-files'
 const HELP = 'dash-help'
 
@@ -17,7 +16,7 @@ const MENU: [string, string, string][] = [
   ['/info', 'panel de info: sesión, contexto, turnos, actividad', 'info'],
   ['/model', 'selector de modelo (1-8)', 'model'],
   ['/effort', 'selector de esfuerzo (1-5)', 'effort'],
-  ['/chats', 'conversaciones previas (cc y llm) y retomarlas', 'chats'],
+  ['/chats', 'conversaciones previas del proyecto; Enter retoma', 'chats'],
   ['/file [ruta]', 'explorador: pega la ruta en el prompt', 'file'],
   ['/ayuda', 'esta ayuda', ''],
   ['PANELES', '', ''],
@@ -67,12 +66,11 @@ const stats = atom(
 )
 // Último nivel elegido desde el selector (el motor no expone el actual).
 const effort = atom({ plugin: 'lambda-deck', key: 'effort' } as const, '')
-const chats = atom({ plugin: 'lambda-deck', key: 'chats' } as const, [], { shape: 'chats-2' })
+const chats = atom({ plugin: 'lambda-deck', key: 'chats' } as const, [], { shape: 'chats-3' })
 const fdir = atom({ plugin: 'lambda-deck', key: 'fdir' } as const, '')
 const fhid = atom({ plugin: 'lambda-deck', key: 'fhid' } as const, false)
 const ffilter = atom({ plugin: 'lambda-deck', key: 'ffilter' } as const, '')
 const hfilter = atom({ plugin: 'lambda-deck', key: 'hfilter' } as const, '')
-const viewing = atom({ plugin: 'lambda-deck', key: 'viewing' } as const, '')
 const info = atom(
   { plugin: 'lambda-deck', key: 'info' } as const,
   { model: '', cwd: '', branch: '', ctxPercent: 0, ctxTokens: 0, ctxWindow: 0, usd: 0, limits: [] },
@@ -110,7 +108,7 @@ const SCAN = [
   '    o=json.loads(l);c=o.get("message",{}).get("content")',
   '    if isinstance(c,str) and not c.startswith("<") and not o.get("isMeta"): first=c',
   '   except Exception: pass',
-  ' if t or first: out.append({"id":os.path.basename(f)[:-6],"title":(t or first).strip().replace("\\n"," ")[:80],"mtime":int(os.path.getmtime(f)*1000),"kind":"cc"})',
+  ' if t or first: out.append({"id":os.path.basename(f)[:-6],"title":(t or first).strip().replace("\\n"," ")[:80],"mtime":int(os.path.getmtime(f)*1000)})',
   'out.sort(key=lambda x:-x["mtime"])',
   'print(json.dumps(out[:40]))',
 ].join('\n')
@@ -126,29 +124,7 @@ async function loadChats($: any) {
   } catch {
     list = []
   }
-  list = [...list, ...(await llmChats($))].sort((a, b) => b.mtime - a.mtime).slice(0, 50)
   await update($, chats, () => list)
-}
-
-// Chats de llm.py (llmui): ~/.local/share/llm-tui/chats/<id>.json
-async function llmDir($: any) {
-  const data = (await $.env.get('XDG_DATA_HOME')) || `${(await $.env.get('HOME')) ?? ''}/.local/share`
-  return `${data}/llm-tui/chats`
-}
-
-async function llmChats($: any): Promise<Chat[]> {
-  const dir = await llmDir($)
-  const files = await $.fs.list(dir).catch(() => [])
-  const out: Chat[] = []
-  for (const f of files.filter((x: any) => x.name.endsWith('.json')).sort((a: any, b: any) => b.mtimeMs - a.mtimeMs).slice(0, 30)) {
-    try {
-      const d = JSON.parse(await $.fs.read(`${dir}/${f.name}`))
-      out.push({ id: d.id ?? f.name.slice(0, -5), title: String(d.title || 'sin título'), mtime: Math.round((d.updated ?? f.mtimeMs / 1000) * 1000), kind: 'llm' })
-    } catch {
-      // archivo ilegible: se omite
-    }
-  }
-  return out
 }
 
 const ago = (ms: number) => {
@@ -296,13 +272,8 @@ export const register: Register = on => {
     const list = await read($, chats)
     const now = await $.clock.now()
     const w = Math.max(16, e.props.bodyColumns - 4)
-    const resume = async (id: string, kind: string) => {
+    const resume = async (id: string) => {
       await $.ui.close({ id: CHATS })
-      if (kind === 'llm') {
-        await update($, viewing, () => id)
-        await $.ui.open({ id: VIEW, title: 'chat llm', focus: true, closeOnEscape: true })
-        return
-      }
       await $.command.run({ command: 'resume', args: id }).catch(() => {
         $.ui.toast(`Retómalo con: claude --resume ${id}`)
       })
@@ -316,52 +287,13 @@ export const register: Register = on => {
         </Box>
         {list.length === 0 && <Text color={DIM}>sin conversaciones previas en este proyecto</Text>}
         {list.map((c, n) => (
-          <Button key={c.id} hotkey={n < 9 ? String(n + 1) : undefined} onPress={() => resume(c.id, c.kind)}>
+          <Button key={c.id} hotkey={n < 9 ? String(n + 1) : undefined} onPress={() => resume(c.id)}>
             <Text color={n === 0 ? ACCENT : undefined}>{n === 0 ? '● ' : '  '}{short(c.title, w - 14).padEnd(Math.min(w - 14, 38))}</Text>
-            <Text color={c.kind === 'llm' ? TEAL : DIM}> {c.kind === 'llm' ? 'llm' : 'cc '}</Text>
             <Text color={DIM}> {ago(now - c.mtime)}</Text>
           </Button>
         ))}
         <Text color={DIM}>{' '}</Text>
-        <Text color={DIM}>Enter: cc retoma · llm abre el chat · Esc cierra</Text>
-      </Box>
-    )
-  })
-
-  // Visor de solo lectura de un chat de llm.py.
-  on('ui.render', { component: 'Pane', requestId: VIEW }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const id = await read($, viewing)
-    const w = Math.max(16, e.props.bodyColumns - 4)
-    let d: any = null
-    try {
-      d = JSON.parse(await $.fs.read(`${await llmDir($)}/${id}.json`))
-    } catch {
-      d = null
-    }
-    if (d === null) return <Text color={BAD}>No se pudo leer el chat.</Text>
-    return (
-      <Box flexDirection="column" paddingX={1}>
-        <Box>
-          <Text color={ACCENT}>{'─ ' + short(String(d.title), w - 4) + ' '}</Text>
-        </Box>
-        <Text color={DIM}>{d.model} · {d.provider ?? ''}{d.cwd ? ' · ' + String(d.cwd).replace(/^\/home\/[^/]+/, '~') : ''}</Text>
-        {d.session_id && <Text color={DIM}>retomar en cc: claude --resume {d.session_id}</Text>}
-        {(d.messages ?? []).slice(-40).map((m: any) => {
-          const lines = String(m.content ?? '').split('\n').filter((l: string) => l.trim() !== '').slice(0, 8)
-          const isMe = m.role === 'user'
-          return (
-            <Box flexDirection="column">
-              <Text> </Text>
-              <Text color={m.role === 'error' ? BAD : isMe ? ACCENT : TEAL} bold>▍ {isMe ? 'tú' : m.role === 'error' ? 'error' : m.model ?? 'modelo'}</Text>
-              {lines.map((l: string) => (
-                <Text color={m.role === 'error' ? BAD : undefined}>{'  ' + short(l, w - 2)}</Text>
-              ))}
-            </Box>
-          )
-        })}
-        <Text> </Text>
-        <Text color={DIM}>últimos 40 mensajes · Esc cierra</Text>
+        <Text color={DIM}>Enter retoma · Esc cierra</Text>
       </Box>
     )
   })
