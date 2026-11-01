@@ -1,0 +1,5 @@
+{
+  "name": "lambda-deck",
+  "owner": { "name": "LuisDev-hub" },
+  "plugins": [{ "name": "lambda-deck", "source": "./" }]
+}

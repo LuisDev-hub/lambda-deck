@@ -1,0 +1,10 @@
+{
+  "name": "lambda-deck",
+  "version": "0.1.0",
+  "description": "Paneles tipo IDE para Claude Code: info de sesión, selectores de /model y /effort, chats previos, explorador de archivos y ayuda.",
+  "author": { "name": "LuisDev-hub" },
+  "homepage": "https://github.com/LuisDev-hub/lambda-deck",
+  "repository": "https://github.com/LuisDev-hub/lambda-deck",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
