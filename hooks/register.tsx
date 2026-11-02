@@ -264,7 +264,7 @@ export const register: Register = on => {
   on('command.run', { command: 'chats' }, async $ => {
     await loadChats($)
     await $.ui.open({ id: CHATS, title: 'chats', focus: true, closeOnEscape: true })
-    return { text: 'Chats abiertos (1-9, o Tab/Enter; Esc cierra).' }
+    return { text: 'Panel de chats abierto: elige una conversación previa (1-9, o Tab/Enter; Esc cierra).' }
   })
 
   on('ui.render', { component: 'Pane', requestId: CHATS }, async ($, e) => {
